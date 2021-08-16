@@ -1,0 +1,93 @@
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to the resources
+    Type: String
+
+  BucketName:
+    Type: String
+    Description: Bucket Name
+    Default: 488113704612-udacity-project-2-b1
+
+Resources:
+  MyS3Bucket:
+    Type: "AWS::S3::Bucket"
+    Description: Bucket on which we will attach and test bucket policy
+    Properties:
+      BucketName: !Ref BucketName
+
+  EC2InstanceS3ReadWritePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Description: "Policy for accessing s3 object from ec2 instance"
+      Path: "/"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:ListBucket"
+            Resource: !Sub "arn:aws:s3:::${BucketName}"
+          - Effect: Allow
+            Action:
+              - "s3:PutObject"
+              - "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${BucketName}/*"
+
+  UdacityS3ReadOnlyEC2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - !Ref EC2InstanceS3ReadWritePolicy
+
+  MyS3BucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref MyS3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Example permissions
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt UdacityS3ReadOnlyEC2.Arn
+            Action:
+              - "s3:GetBucketLocation"
+              - "s3:ListBucket"
+            Resource: !Sub "arn:aws:s3:::${BucketName}"
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt UdacityS3ReadOnlyEC2.Arn
+            Action:
+              - "s3:PutObject"
+              - "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${BucketName}/*"
+
+Outputs:
+  UdacityS3ReadOnlyEC2:
+    Description: An IAM role to read objects from s3
+    Value: !Ref UdacityS3ReadOnlyEC2
+    Export: 
+      Name: UdacityS3ReadOnlyEC2
+
+  BucketName:
+    Description: source code bucket name
+    Value: !Ref BucketName
+    Export: 
+      Name: BucketName
+
+  InstanceRolePolicyName:
+    Description: policy name attched with UdacityS3ReadOnlyEC2
+    Value: !Ref EC2InstanceS3ReadWritePolicy
+    Export: 
+      Name: EC2InstanceS3ReadWritePolicy
+      
+         

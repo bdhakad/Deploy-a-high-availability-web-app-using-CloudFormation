@@ -1,0 +1,28 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Example permissions",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::488113704612:role/UdacityS3ReadOnlyEC2"
+            },
+            "Action": [
+                "s3:GetBucketLocation",
+                "s3:ListBucket"
+            ],
+            "Resource": "arn:aws:s3:::488113704612-udacity-project-2"
+        },
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::488113704612:role/UdacityS3ReadOnlyEC2"
+            },
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject"
+            ],
+            "Resource": "arn:aws:s3:::488113704612-udacity-project-2/*"
+        }
+    ]
+}

@@ -1,0 +1,237 @@
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+  # Key pair
+  EC2KeyPair:
+    Type: String
+    Default: my-nd-key
+  # AMI Id
+  ImageId:
+    Type: String
+    Default: ami-0747bdcabd34c712a
+  # instance type
+  InstanceType:
+    Type: String
+    Default: t2.medium
+
+Resources:
+  # Instance profile to access the src code from S3 bucket
+  InstanceProfileForS3Access:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - Fn::ImportValue: "UdacityS3ReadOnlyEC2"
+
+  # Load balancer security group
+  LBSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to load balancer
+      VpcId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  # Security group for server deployed in private subnet
+  WebServerSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to our hosts and SSH from local only
+      VpcId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  # EC2 Launch configuration
+  WebAppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install unzip awscli -y
+          apt-get install apache2 -y
+          systemctl start apache2.service
+          cd /var/www/html
+          aws s3 cp s3://488113704612-udacity-project-2-b1/udacity.zip .
+          unzip -o udacity.zip
+      ImageId: !Ref ImageId
+      #uncomment if you want to use Bastion Host to login to private servers
+      # KeyName: !Ref EC2KeyPair
+      IamInstanceProfile: !Ref InstanceProfileForS3Access
+      SecurityGroups:
+        - Ref: WebServerSecGroup
+      InstanceType: !Ref InstanceType
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: "10"
+
+  # AutoScaling Group for the severs in private subnet
+  WebAppGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-PRIV-NETS"
+      LaunchConfigurationName:
+        Ref: WebAppLaunchConfig
+      MinSize: "4"
+      MaxSize: "8"
+      TargetGroupARNs:
+        - Ref: WebAppTargetGroup
+
+  # Load balancer
+  WebAppLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+        - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
+      SecurityGroups:
+        - Ref: LBSecGroup
+
+  # Listener for load balancer
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: WebAppTargetGroup
+      LoadBalancerArn:
+        Ref: WebAppLB
+      Port: "80"
+      Protocol: HTTP
+
+  # Listener rule for Listener
+  LBListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref "WebAppTargetGroup"
+      Conditions:
+        - Field: path-pattern
+          Values: [/]
+      ListenerArn: !Ref "Listener"
+      Priority: 1
+
+  # EC2 Target Group
+  WebAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 8
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${EnvironmentName}-VPCID"
+
+  # Bastion Host - uncomment below code and update stack to enable Bastion host
+  # SecurityGroup for Bastion host/ jumpbox
+  # WebAccessSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupDescription: Allow http to our hosts and SSH from local only
+  #     VpcId:
+  #       Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+  #     SecurityGroupIngress:
+  #       - IpProtocol: tcp
+  #         FromPort: 80
+  #         ToPort: 80
+  #         CidrIp: 0.0.0.0/0
+  #       - IpProtocol: tcp
+  #         FromPort: 22
+  #         ToPort: 22
+  #         CidrIp: 0.0.0.0/0
+  #     SecurityGroupEgress:
+  #       - IpProtocol: -1
+  #         FromPort: -1
+  #         ToPort: -1
+  #         CidrIp: 0.0.0.0/0
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Ref EnvironmentName
+  # Jumpbox/ bastion host
+  # MyEC2Instance:
+  #   Type: AWS::EC2::Instance
+  #   Properties:
+  #     ImageId: !Ref ImageId
+  #     InstanceType: !Ref InstanceType
+  #     KeyName: !Ref EC2KeyPair
+  #     BlockDeviceMappings:
+  #       - DeviceName: "/dev/sda1"
+  #         Ebs:
+  #           VolumeSize: "10"
+  #     NetworkInterfaces:
+  #       - AssociatePublicIpAddress: "true"
+  #         DeviceIndex: "0"
+  #         GroupSet:
+  #           - Ref: "WebAccessSecurityGroup"
+  #         SubnetId:
+  #           Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub "Jumpbox-${EnvironmentName}"
+
+Outputs:
+  LoadBalancer:
+    Description: A reference to the Application Load Balancer
+    Value: !Ref WebAppLB
+    Export:
+      Name: LoadBalancer
+
+  LoadBalancerUrl:
+    Description: The URL of the LoadBalancer
+    Value: !GetAtt WebAppLB.DNSName
+    Export:
+      Name: LoadBalancerUrl
+
+  Listener:
+    Description: A reference to a port 80 listener
+    Value: !Ref Listener
+    Export:
+      Name: Listener
+
+  HttpLoadBalancerUrl:
+    Description: The http URL of the LoadBalancer
+    Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName]]
+    Export:
+      Name: HttpLoadBalancerUrl

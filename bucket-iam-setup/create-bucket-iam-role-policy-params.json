@@ -1,0 +1,10 @@
+[
+	{
+		"ParameterKey": "EnvironmentName",
+		"ParameterValue": "UdacityProject2"
+	},
+	{
+		"ParameterKey": "BucketName",
+		"ParameterValue": "488113704612-udacity-project-2-b1"
+	}
+]
